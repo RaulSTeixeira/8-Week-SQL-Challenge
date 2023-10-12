@@ -71,5 +71,27 @@ VALUES
 
 -- 1. What is the total amount each customer spent at the restaurant?
 
+SELECT customer_id, sum(price) AS total_sales 
+FROM dannys_diner.sales
+INNER JOIN dannys_diner.menu ON menu.product_id = sales.product_id
+GROUP BY customer_id
+ORDER BY customer_id
 
+-- 2. How many days has each customer visited the restaurant?
+
+SELECT customer_id, count(DISTINCT order_date) as visits
+FROM dannys_diner.sales
+Group BY customer_id
+ORDER BY customer_id
+
+-- 3. What was the first item from the menu purchased by each customer?
+
+SELECT DISTINCT customer_id, product_name FROM(
+	SELECT customer_id, 
+	product_name,
+	order_date,
+	RANK() OVER (PARTITION BY customer_id ORDER BY order_date) as product_rank 
+	FROM dannys_diner.sales
+	INNER JOIN dannys_diner.menu on sales.product_id = menu.product_id) as rank_numb
+WHERE product_rank = 1
 
