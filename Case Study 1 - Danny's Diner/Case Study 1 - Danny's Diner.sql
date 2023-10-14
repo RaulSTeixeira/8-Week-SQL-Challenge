@@ -95,3 +95,83 @@ SELECT DISTINCT customer_id, product_name FROM(
 	INNER JOIN dannys_diner.menu on sales.product_id = menu.product_id) as rank_numb
 WHERE product_rank = 1
 
+-- 4. What is the most purchased item on the menu and how many times was it purchased by all customers?
+
+SELECT product_name, count(sales.product_id) as number_sold
+FROM dannys_diner.sales
+INNER JOIN dannys_diner.menu on menu.product_id = sales.product_id
+GROUP By product_name
+ORDER By number_sold DESC
+LIMIT 1
+
+-- 5. Which item was the most popular for each customer?
+-- Assuming that we want to see all products, even when they were bought the same amount of times.
+
+SELECT customer_id, product_name,product_rank, sales FROM
+	(SELECT
+	customer_id,
+	menu.product_name,
+	RANK() OVER (PARTITION BY sales.customer_id ORDER BY COUNT(menu.product_name)DESC) as product_rank,
+	COUNT (menu.product_name) as sales
+	FROM dannys_diner.sales
+	INNER JOIN dannys_diner.menu on menu.product_id = sales.product_id
+	GROUP By customer_id, product_name) as rank_numb
+WHERE product_rank = 1
+
+-- In this version, with ROW_NUMBER we just see one product per customer. Products with the same amount of sales within a customer are chosen by alfabetic order.
+
+SELECT customer_id, product_name,product_rank, sales FROM
+	(SELECT
+	customer_id,
+	menu.product_name,
+	ROW_NUMBER() OVER (PARTITION BY sales.customer_id ORDER BY COUNT(menu.product_name)DESC,menu.product_name) as product_rank,
+	COUNT (menu.product_name) as sales
+	FROM dannys_diner.sales
+	INNER JOIN dannys_diner.menu on menu.product_id = sales.product_id
+	GROUP By customer_id, product_name) as rank_numb
+WHERE product_rank = 1
+
+-- 6. Which item was purchased first by the customer after they became a member?
+-- Assuming that a product is ilegible when it was bought in the same day as the join_date (there are no detailed timestamp)
+SELECT customer_id, product_name FROM
+	(SELECT
+	sales.customer_id,
+	sales.order_date,
+	members.join_date,
+	menu.product_name,
+	RANK() OVER (PARTITION BY sales.customer_id ORDER BY sales.order_date) as product_rank
+	FROM dannys_diner.sales
+	INNER JOIN dannys_diner.menu on menu.product_id = sales.product_id
+	INNER JOIN dannys_diner.members on members.customer_id = sales.customer_id
+	WHERE order_date >= join_date) as rank_numb
+WHERE product_rank = 1
+
+-- 7. Which item was purchased just before the customer became a member?
+
+SELECT customer_id, product_name, order_date, join_date FROM
+	(SELECT
+	sales.customer_id,
+	sales.order_date,
+	members.join_date,
+	menu.product_name,
+	RANK() OVER (PARTITION BY sales.customer_id ORDER BY sales.order_date DESC) as product_rank
+	FROM dannys_diner.sales
+	INNER JOIN dannys_diner.menu on menu.product_id = sales.product_id
+	INNER JOIN dannys_diner.members on members.customer_id = sales.customer_id
+	WHERE order_date < join_date) as rank_numb
+WHERE product_rank = 1
+
+-- In this version when there are two products bought in the same day, alfabetic order is used.
+
+SELECT customer_id, product_name FROM
+	(SELECT
+	sales.customer_id,
+	sales.order_date,
+	members.join_date,
+	menu.product_name,
+	ROW_NUMBER() OVER (PARTITION BY sales.customer_id ORDER BY sales.order_date DESC, menu.product_name) as product_rank
+	FROM dannys_diner.sales
+	INNER JOIN dannys_diner.menu on menu.product_id = sales.product_id
+	INNER JOIN dannys_diner.members on members.customer_id = sales.customer_id
+	WHERE order_date < join_date) as rank_numb
+WHERE product_rank = 1
