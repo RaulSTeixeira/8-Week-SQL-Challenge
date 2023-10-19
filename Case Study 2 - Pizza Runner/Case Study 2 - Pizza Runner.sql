@@ -195,41 +195,138 @@ SELECT *
 INTO pizza_runner.runner_orders_cleaned
 FROM pizza_runner.runner_orders
 
-SELECT * FROM pizza_runner.runner_orders_cleaned
+-- clean columns with empty values and incorrect strings representation
 
 UPDATE pizza_runner.runner_orders_cleaned
-
 SET distance = CASE
 					WHEN distance = '' OR distance = 'null' THEN NULL
-					WHEN distance LIKE '%km' THEN TRIM('km' from distance)
-					ELSE distance
-				 END,
+					ELSE CAST(REGEXP_REPLACE(distance,'[[:alpha:]]','','g') AS FLOAT)
+				 END,					  
 	duration = CASE
-					WHEN duration = '' OR duration = 'null' THEN NULL
-					ELSE duration = Substring(duration,1,2)
+					WHEN distance = '' OR distance = 'null' THEN NULL
+					ELSE CAST(REGEXP_REPLACE(duration,'[[:alpha:]]','','g') AS INT)
+				 END,						  
+	cancellation = CASE
+					WHEN cancellation = '' OR cancellation = 'null' THEN NULL
+					ELSE cancellation
+				 END,
+	pickup_time = CASE
+					WHEN pickup_time = '' OR pickup_time = 'null' THEN NULL
+					ELSE pickup_time
 				 END
 
+-- Review data types
 
+SELECT TABLE_NAME,COLUMN_NAME,DATA_TYPE
+FROM INFORMATION_SCHEMA.COLUMNS
+WHERE TABLE_NAME = 'runner_orders_cleaned'
 
+ALTER TABLE pizza_runner.runner_orders_cleaned
+ALTER COLUMN pickup_time TYPE timestamp USING pickup_time::timestamp,
+ALTER COLUMN distance TYPE FLOAT USING distance::FLOAT,
+ALTER COLUMN duration TYPE INT USING duration::INT
 
 --------------------------
 -- CASE STUDY QUESTIONS --
 --------------------------
 
--- 1. How many pizzas were ordered?
+-- A. PIZZA METRICS --
+
+-- A1. How many pizzas were ordered?
 
 SELECT COUNT(pizza_id) AS number_orders
 FROM pizza_runner.customer_orders_cleaned
 
--- 2. How many unique customer orders were made?
+-- A2. How many unique customer orders were made?
 
 SELECT COUNT(DISTINCT order_id) AS unique_orders
 FROM pizza_runner.customer_orders_cleaned
 
--- 3. How many successful orders were delivered by each runner?
+-- A3. How many successful orders were delivered by each runner?
 
+SELECT runner_id, COUNT(order_id) AS number_sucesseful_runs FROM pizza_runner.runner_orders_cleaned 
+WHERE pickup_time IS NOT NULL
+GROUP BY runner_id
+ORDER BY runner_id
 
+-- A4. How many of each type of pizza was delivered?
 
+SELECT co.pizza_id, pn.pizza_name, COUNT(co.order_id) AS number_pizzas_delivered FROM pizza_runner.customer_orders_cleaned co
+INNER JOIN pizza_runner.runner_orders_cleaned ro ON co.order_id = ro.order_id
+INNER JOIN pizza_runner.pizza_names pn ON co.pizza_id = pn.pizza_id
+WHERE ro.cancellation IS NULL
+GROUP BY co.pizza_id, pn.pizza_name
+ORDER BY co.pizza_id
+
+-- A5. How many Vegetarian and Meatlovers were ordered by each customer?
+
+SELECT co.customer_id, pn.pizza_name, COUNT(co.order_id) AS number_pizzas_delivered FROM pizza_runner.customer_orders_cleaned co
+INNER JOIN pizza_runner.runner_orders_cleaned ro ON co.order_id = ro.order_id
+INNER JOIN pizza_runner.pizza_names pn ON co.pizza_id = pn.pizza_id
+GROUP BY co.customer_id, pn.pizza_name
+ORDER BY co.customer_id
+
+-- A6. What was the maximum number of pizzas delivered in a single order?
+-- note: if a order is canceled, it only appers once in the order table, so for this particular problem, we dont need to inner join this two tables
+
+SELECT co.order_id, COUNT(co.order_id) AS number_pizzas_delivered FROM pizza_runner.customer_orders_cleaned co
+INNER JOIN pizza_runner.runner_orders_cleaned ro ON co.order_id = ro.order_id
+WHERE ro.cancellation IS NULL
+GROUP BY co.order_id
+ORDER BY number_pizzas_delivered DESC
+LIMIT 1
+
+-- A7. For each customer, how many delivered pizzas had at least 1 change and how many had no changes?
+
+SELECT 
+	co.customer_id,
+	SUM(CASE
+			WHEN co.exclusions IS NULL AND co.exclusions_2 IS NULL AND co.extras IS NULL AND co.extras_2 IS NULL THEN 1
+			ELSE 0
+		END) AS number_pizzas_delivered_NO_changes,
+	SUM(CASE
+			WHEN co.exclusions IS NOT NULL OR co.exclusions_2 IS NOT NULL OR co.extras IS NOT NULL OR co.extras_2 IS NOT NULL THEN 1
+			ELSE 0
+		END) AS number_pizzas_delivered_WITH_changes
+FROM pizza_runner.customer_orders_cleaned co
+INNER JOIN pizza_runner.runner_orders_cleaned ro ON co.order_id = ro.order_id
+WHERE ro.cancellation IS NULL
+GROUP BY co.customer_id
+ORDER BY co.customer_id
+
+-- A8. How many pizzas were delivered that had both exclusions and extras?
+
+SELECT 
+	SUM(CASE
+			WHEN (co.exclusions IS NOT NULL OR co.exclusions_2 IS NOT NULL) AND (co.extras IS NOT NULL OR co.extras_2 IS NOT NULL) THEN 1
+			ELSE 0
+		END) AS number_pizzas_delivered_with_exclusions_extras
+	FROM pizza_runner.customer_orders_cleaned co
+INNER JOIN pizza_runner.runner_orders_cleaned ro ON co.order_id = ro.order_id
+WHERE ro.cancellation IS NULLSELECT 
+	SUM(CASE
+			WHEN (co.exclusions IS NOT NULL OR co.exclusions_2 IS NOT NULL) AND (co.extras IS NOT NULL OR co.extras_2 IS NOT NULL) THEN 1
+			ELSE 0
+		END) AS number_pizzas_delivered_with_exclusions_extras
+	FROM pizza_runner.customer_orders_cleaned co
+INNER JOIN pizza_runner.runner_orders_cleaned ro ON co.order_id = ro.order_id
+WHERE ro.cancellation IS NULL
+
+-- A9. What was the total volume of pizzas ordered for each hour of the day?
+
+SELECT EXTRACT (hour FROM co.order_time) AS hour_day, 
+				COUNT(order_id) AS volume_orders
+FROM pizza_runner.customer_orders_cleaned co
+GROUP BY hour_day
+ORDER BY hour_day
+
+-- A10. What was the volume of orders for each day of the week?
+
+SELECT to_char(co.order_time, 'day') AS day_week, 
+				COUNT(order_id) AS volume_orders
+FROM pizza_runner.customer_orders_cleaned co
+GROUP BY day_week
+ORDER BY day_week
 
 ---------------------
 -- BONUS QUESTIONS --
