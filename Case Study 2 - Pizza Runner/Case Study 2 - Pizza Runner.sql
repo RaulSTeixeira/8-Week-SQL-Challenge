@@ -223,7 +223,7 @@ WHERE TABLE_NAME = 'runner_orders_cleaned'
 
 ALTER TABLE pizza_runner.runner_orders_cleaned
 ALTER COLUMN pickup_time TYPE timestamp USING pickup_time::timestamp,
-ALTER COLUMN distance TYPE FLOAT USING distance::FLOAT,
+ALTER COLUMN distance TYPE numeric USING distance::numeric,
 ALTER COLUMN duration TYPE INT USING duration::INT
 
 --------------------------
@@ -278,7 +278,7 @@ LIMIT 1
 
 -- A7. For each customer, how many delivered pizzas had at least 1 change and how many had no changes?
 
-SELECT 
+SELECT
 	co.customer_id,
 	SUM(CASE
 			WHEN co.exclusions IS NULL AND co.exclusions_2 IS NULL AND co.extras IS NULL AND co.extras_2 IS NULL THEN 1
@@ -296,7 +296,7 @@ ORDER BY co.customer_id
 
 -- A8. How many pizzas were delivered that had both exclusions and extras?
 
-SELECT 
+SELECT
 	SUM(CASE
 			WHEN (co.exclusions IS NOT NULL OR co.exclusions_2 IS NOT NULL) AND (co.extras IS NOT NULL OR co.extras_2 IS NOT NULL) THEN 1
 			ELSE 0
@@ -327,6 +327,101 @@ SELECT to_char(co.order_time, 'day') AS day_week,
 FROM pizza_runner.customer_orders_cleaned co
 GROUP BY day_week
 ORDER BY day_week
+
+-- B. RUNNER AND CUSTOMER EXPERIENCE --
+
+-- B1. How many runners signed up for each 1 week period? (i.e. week starts 2021-01-01)
+-- note: postgres uses iso standards to extract dates, in this case the first week is seen as 53
+
+SELECT date_part('week', registration_date) AS registration_week,
+	   count(runner_id) AS number_registrations
+FROM pizza_runner.runners
+GROUP BY registration_week
+
+-- B2. What was the average time in minutes it took for each runner to arrive at the Pizza Runner HQ to pickup the order?
+-- Used epoch to extract seconds from the diff, and then rounded with 2 decimals
+
+SELECT ro.runner_id,
+	   ROUND(AVG (extract(epoch from (pickup_time - order_time)))/60,2) AS avg_pickup_time
+FROM pizza_runner.customer_orders_cleaned co
+INNER JOIN pizza_runner.runner_orders_cleaned ro ON co.order_id = ro.order_id
+GROUP BY ro.runner_id
+ORDER BY ro.runner_id
+
+-- B3. Is there any relationship between the number of pizzas and how long the order takes to prepare?
+
+WITH order_avg_pickup_time AS
+	(SELECT ro.order_id,
+		   COUNT(co.pizza_id) AS nr_pizzas,
+		   EXTRACT(epoch from (ro.pickup_time - co.order_time))/60 AS prepare_time
+	FROM pizza_runner.customer_orders_cleaned co
+	INNER JOIN pizza_runner.runner_orders_cleaned ro ON co.order_id = ro.order_id
+	WHERE ro.cancellation IS NULL
+	GROUP BY ro.order_id, prepare_time
+	ORDER BY ro.order_id)
+SELECT nr_pizzas,
+	   ROUND(AVG(prepare_time),2) AS avg_prepare_time
+FROM order_avg_pickup_time
+GROUP BY nr_pizzas
+
+-- The preparation time increases linearly with the number of pizzas ordered
+
+-- B4. What was the average distance travelled for each customer?
+
+SELECT co.customer_id,
+	   ROUND(AVG(ro.distance), 2) AS avg_distance
+FROM pizza_runner.customer_orders_cleaned co
+INNER JOIN pizza_runner.runner_orders_cleaned ro ON co.order_id = ro.order_id
+GROUP BY customer_id
+ORDER BY customer_id
+
+-- B5.What was the difference between the longest and shortest delivery times for all orders?
+
+SELECT MAX(ro.duration) - MIN (ro.duration) AS diff_duration
+FROM pizza_runner.runner_orders_cleaned ro
+
+-- B6. What was the average speed for each runner for each delivery and do you notice any trend for these values?
+
+SELECT ro.runner_id,
+	   ro.order_id,
+	   ro.duration,
+	   ro.distance,
+	   ROUND(ro.distance*60/ro.duration,2) AS average_speed_km_h
+FROM pizza_runner.runner_orders_cleaned ro
+WHERE ro.cancellation IS NULL
+GROUP BY ro.runner_id, ro.order_id, ro.duration, ro.distance
+ORDER BY ro.runner_id
+
+-- The average speed seems unrelated to the distance, but it increases as the runner delivers more orders
+
+-- B7. What is the successful delivery percentage for each runner?
+
+WITH sucefull_delivery AS
+	(SELECT runner_id,
+	 		order_id,
+	 	    CASE
+	 			WHEN ro.cancellation IS NULL THEN 1
+				ELSE 0
+			END AS sucess
+	 FROM pizza_runner.runner_orders_cleaned ro)
+
+SELECT runner_id,
+	   (SUM (sucess)/CAST(COUNT(order_id) as FLOAT) * 100) AS sucess_percentage
+FROM sucefull_delivery
+GROUP BY sucefull_delivery.runner_id
+ORDER BY runner_id
+
+
+C1.
+
+-- Expanded and copy pizza_recipes table
+DROP TABLE IF EXISTS pizza_recipes_expanded;
+CREATE TABLE pizza_recipes_expanded AS
+SELECT
+	pizza_id,
+	UNNEST(regexp_split_to_array(toppings, ','))as toppings_id
+FROM pizza_runner.pizza_recipes
+
 
 ---------------------
 -- BONUS QUESTIONS --
