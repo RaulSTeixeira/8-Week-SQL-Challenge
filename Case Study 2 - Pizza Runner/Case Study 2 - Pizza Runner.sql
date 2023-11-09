@@ -411,16 +411,38 @@ FROM sucefull_delivery
 GROUP BY sucefull_delivery.runner_id
 ORDER BY runner_id
 
+-- C. INGREDIENTS OPTIMIZATION --
 
-C1.
+-- C1. What are the standard ingredients for each pizza?
 
--- Expanded and copy pizza_recipes table
-DROP TABLE IF EXISTS pizza_recipes_expanded;
-CREATE TABLE pizza_recipes_expanded AS
+-- Expanded and copy pizza_recipes table, also changed data type for topping_id
+DROP TABLE IF EXISTS pizza_runner.pizza_recipes_expanded;
+CREATE TABLE pizza_runner.pizza_recipes_expanded AS
 SELECT
 	pizza_id,
-	UNNEST(regexp_split_to_array(toppings, ','))as toppings_id
+	UNNEST(regexp_split_to_array(toppings, ','))as topping_id
 FROM pizza_runner.pizza_recipes
+
+SELECT TABLE_NAME,COLUMN_NAME,DATA_TYPE
+FROM INFORMATION_SCHEMA.COLUMNS
+WHERE TABLE_NAME = 'pizza_recipes_expanded'
+
+ALTER TABLE pizza_runner.pizza_recipes_expanded
+ALTER COLUMN toppings_id TYPE INT USING topping_id::integer
+
+SELECT *
+FROM pizza_runner.pizza_recipes_expanded pze
+INNER JOIN pizza_runner.pizza_topping pt ON pze.topping_id = pt.topping_id
+
+SELECT pn.pizza_name, STRING_AGG(pt.topping_name,', ') as standard_ingredients
+FROM pizza_runner.pizza_recipes_expanded pre
+INNER JOIN pizza_runner.pizza_toppings pt ON pre.topping_id = pt.topping_id
+INNER JOIN pizza_runner.pizza_names pn ON pn.pizza_id = pre.pizza_id
+GROUP BY pn.pizza_name
+ORDER BY pn.pizza_name
+
+-- C2. What was the most commonly added extra?
+
 
 
 ---------------------
