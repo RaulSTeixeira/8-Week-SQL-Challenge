@@ -443,6 +443,126 @@ ORDER BY pn.pizza_name
 
 -- C2. What was the most commonly added extra?
 
+-- In the inital data cleaning the extras columns was split into two, but in this method we will expand the original table to count the most added extra.
+DROP TABLE IF EXISTS pizza_runner.customer_orders_original_cleaned;
+SELECT *
+INTO pizza_runner.customer_orders_original_cleaned
+FROM pizza_runner.customer_orders
+
+-- Update blank and 'null' values
+
+UPDATE pizza_runner.customer_orders_original_cleaned
+SET exclusions = CASE
+					WHEN exclusions = '' OR exclusions = 'null' THEN NULL
+					ELSE exclusions
+				 END,
+	extras = CASE
+				WHEN extras = '' OR extras = 'null' THEN NULL
+				ELSE extras
+				END
+				
+WITH customer_orders_expanded AS
+	(SELECT
+		order_id,
+		UNNEST(regexp_split_to_array(extras, ',')) AS extras_id
+	FROM pizza_runner.customer_orders_original_cleaned
+	)
+	
+SELECT pt.topping_name, COUNT(*) AS times_added FROM customer_orders_expanded coe
+INNER JOIN pizza_runner.pizza_toppings pt ON CAST (coe.extras_id AS INTEGER)  = CAST (pt.topping_id AS INTEGER)
+
+GROUP BY pt.topping_name
+ORDER BY times_added DESC
+LIMIT 1
+
+-- C3. What was the most common exclusion??
+
+-- Same as before, but now using the exclusions
+WITH customer_orders_expanded AS
+	(SELECT
+		order_id,
+		UNNEST(regexp_split_to_array(exclusions, ',')) AS exclusions_id
+	FROM pizza_runner.customer_orders_original_cleaned
+	)
+	
+SELECT pt.topping_name, COUNT(*) AS times_removed FROM customer_orders_expanded coe
+INNER JOIN pizza_runner.pizza_toppings pt ON CAST (coe.exclusions_id AS INTEGER)  = CAST (pt.topping_id AS INTEGER)
+
+GROUP BY pt.topping_name
+ORDER BY times_removed DESC
+LIMIT 1
+
+/* C.4 Generate an order item for each record in the customers_orders table in the format of one of the following:
+			Meat Lovers
+			Meat Lovers - Exclude Beef
+			Meat Lovers - Extra Bacon
+			Meat Lovers - Exclude Cheese, Bacon - Extra Mushroom, Peppers*/
+
+
+SELECT pn.pizza_name,
+	   t1.topping_name,
+	   t2.topping_name,
+	   t3.topping_name,
+	   t4.topping_name,
+	   CASE	
+	   		WHEN t1.topping_name IS NOT NULL
+			AND t3.topping_name IS NULL 
+			AND t2.topping_name IS NULL
+			THEN CONCAT(pn.pizza_name,' - Exclude ', t1.topping_name)
+			
+			WHEN t1.topping_name IS NOT NULL 
+			AND t3.topping_name IS NULL 
+			AND t2.topping_name IS NOT NULL
+			THEN CONCAT(pn.pizza_name,' - Exclude ', t1.topping_name, ', ',t2.topping_name)
+			
+			WHEN t1.topping_name IS NOT NULL
+			AND t3.topping_name IS NOT NULL
+			AND t2.topping_name IS NULL
+			AND t4.topping_name IS NULL
+			THEN CONCAT(pn.pizza_name,' - Exclude ', t1.topping_name, ', - Extra ',t3.topping_name)
+			
+			WHEN t1.topping_name IS NOT NULL
+			AND t3.topping_name IS NOT NULL
+			AND t2.topping_name IS NULL
+			AND t4.topping_name IS NULL
+			THEN CONCAT(pn.pizza_name,' - Exclude ', t1.topping_name, ', - Extra ',t3.topping_name)
+			
+			WHEN t1.topping_name IS NULL
+			AND t3.topping_name IS NOT NULL
+			AND t4.topping_name IS NULL
+			THEN CONCAT(pn.pizza_name,' - Extra ',t3.topping_name)
+			
+			WHEN t1.topping_name IS NULL
+			AND t3.topping_name IS NOT NULL
+			AND t4.topping_name IS NOT NULL
+			THEN CONCAT(pn.pizza_name,' - Extra ',t3.topping_name, ', ',t4.topping_name)
+			
+			WHEN t1.topping_name IS NOT NULL
+			AND t3.topping_name IS NOT NULL
+			AND t2.topping_name IS NOT NULL
+			AND t4.topping_name IS NOT NULL
+			THEN CONCAT(pn.pizza_name,' - Exclude ', t1.topping_name,', ', t2.topping_name, ', - Extra ',t3.topping_name, ', ', t4.topping_name)
+			
+			ELSE pn.pizza_name
+						
+	   END AS generated_order
+
+FROM pizza_runner.customer_orders_cleaned coc
+INNER JOIN pizza_runner.pizza_names pn ON coc.pizza_id = pn.pizza_id
+LEFT JOIN pizza_runner.pizza_toppings t1 ON coc.exclusions = t1.topping_id
+LEFT JOIN pizza_runner.pizza_toppings t2 ON coc.exclusions_2 = t2.topping_id
+LEFT JOIN pizza_runner.pizza_toppings t3 ON coc.extras = t3.topping_id
+LEFT JOIN pizza_runner.pizza_toppings t4 ON coc.extras_2 = t4.topping_id
+
+
+/* C.5 Generate an alphabetically ordered comma separated ingredient list for each pizza order from the customer_orders table and add a 2x in front of any relevant ingredients
+For example: "Meat Lovers: 2xBacon, Beef, ... , Salami" */
+
+
+
+
+
+
 
 
 ---------------------
