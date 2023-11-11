@@ -558,8 +558,71 @@ LEFT JOIN pizza_runner.pizza_toppings t4 ON coc.extras_2 = t4.topping_id
 /* C.5 Generate an alphabetically ordered comma separated ingredient list for each pizza order from the customer_orders table and add a 2x in front of any relevant ingredients
 For example: "Meat Lovers: 2xBacon, Beef, ... , Salami" */
 
+-- STEP 1: Create a new customer_orders table with a sk_row column to identify each row because we can have equal rows as one customer can order 2 equal pizzas in the same order
+DROP TABLE IF EXISTS pizza_runner.ordered_ingredients;
+SELECT coc2.order_id,
+	   coc2.sk_row,
+	   coc2.pizza_id,
+	   CONCAT(coc2.order_id,coc2.sk_row) as sk_pizza,
+	   pn.pizza_name as pizza_name,
+	   coc2.extras,
+	   coc2.exclusions,
+	   pre.topping_id,
+	   t1.topping_name,
+	   t2.topping_name as xxx,
+	   CASE
+			WHEN t1.topping_name = t2.topping_name THEN CONCAT('2x',t1.topping_name) -- extras
+			WHEN t1.topping_name = t4.topping_name THEN CONCAT('2x',t1.topping_name) -- extras_2
+			WHEN t1.topping_name = t3.topping_name THEN '' -- exclusions
+			WHEN t1.topping_name = t5.topping_name THEN '' -- exclusions_2
+			ELSE t1.topping_name
+	   END AS final_ingredients
+INTO pizza_runner.ordered_ingredients
+FROM pizza_runner.customers_orders_cleaned2 coc2
+	INNER JOIN pizza_runner.pizza_names pn on coc2.pizza_id = pn.pizza_id
+	INNER JOIN pizza_runner.pizza_recipes_expanded pre on pn.pizza_id = pre.pizza_id
+	INNER JOIN pizza_runner.pizza_toppings t1 on pre.topping_id = t1.topping_id
+	-- extras
+	LEFT JOIN pizza_runner.pizza_toppings t2 on coc2.extras = t2.topping_id
+	LEFT JOIN pizza_runner.pizza_toppings t4 on coc2.extras_2 = t4.topping_id
+	-- exclusions
+	LEFT JOIN pizza_runner.pizza_toppings t3 on coc2.exclusions = t3.topping_id
+	LEFT JOIN pizza_runner.pizza_toppings t5 on coc2.exclusions_2 = t5.topping_id
 
+-- STEP 3: Use RANK() to order ingredients_for_pizza the ingredient list for each pizza and reshape data using STRING_AGG to answer the question
+SELECT oic.sk_pizza,
+	   CONCAT(oic.pizza_name, ':', STRING_AGG(oic.final_ingredients,', ')) as ingredients_for_pizza
+FROM	   
+	(SELECT oi.sk_pizza, 
+		   oi.pizza_name,
+		   oi.final_ingredients,
+		   CASE	
+				WHEN oi.final_ingredients = '' THEN NULL
+				ELSE RANK() OVER(PARTITION BY sk_pizza ORDER BY pizza_name,final_ingredients)
+		   END AS ingredients_rank
+	 FROM pizza_runner.ordered_ingredients oi) AS oic
+WHERE oic.ingredients_rank IS NOT NULL
+GROUP BY oic.sk_pizza, oic.pizza_name
 
+--C.6 What is the total quantity of each ingredient used in all delivered pizzas sorted by most frequent first?
+-- remember to used tables calculated in previous question
+SELECT oic.final_ingredients,
+       CASE
+	   		WHEN final_ingredients LIKE ('2x%') THEN COUNT(oic.final_ingredients) * 2
+			ELSE COUNT(oic.final_ingredients)
+			END AS total_amount
+FROM	   
+	(SELECT oi.sk_pizza, 
+		   oi.pizza_name,
+		   oi.final_ingredients,
+		   CASE	
+				WHEN oi.final_ingredients = '' THEN NULL
+				ELSE RANK() OVER(PARTITION BY sk_pizza ORDER BY pizza_name,final_ingredients)
+		   END AS ingredients_rank
+	 FROM pizza_runner.ordered_ingredients oi) AS oic
+WHERE oic.ingredients_rank IS NOT NULL
+GROUP BY oic.final_ingredients
+ORDER BY total_amount DESC
 
 
 
