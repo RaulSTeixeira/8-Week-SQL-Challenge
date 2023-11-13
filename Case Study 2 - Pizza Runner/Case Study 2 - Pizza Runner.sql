@@ -624,6 +624,101 @@ WHERE oic.ingredients_rank IS NOT NULL
 GROUP BY oic.final_ingredients
 ORDER BY total_amount DESC
 
+-- D. PRICING AND RATINGS --
+
+--D.1 If a Meat Lovers pizza costs $12 and Vegetarian costs $10 and there were no charges for changes - how much money has Pizza Runner made so far if there are no delivery fees?
+
+SELECT SUM(price_table.price) AS total_income
+FROM(
+	SELECT pn.pizza_name, coc.order_id, roc.cancellation,
+		CASE
+			WHEN pn.pizza_name = 'Meatlovers' THEN 12
+			ELSE 10
+		END AS price
+	FROM pizza_runner.customer_orders_cleaned coc
+	INNER JOIN pizza_runner.runner_orders_cleaned roc ON coc.order_id = roc.order_id
+	INNER JOIN pizza_runner.pizza_names pn ON coc.pizza_id = pn.pizza_id
+	WHERE roc.cancellation IS NULL) AS price_table
+
+--D.2 What if there was an additional $1 charge for any pizza extras? Add cheese is $1 extra
+
+SELECT SUM(price_table_with_extras.price) + SUM(price_table_with_extras.extras_price) AS total_income
+FROM(
+	SELECT pn.pizza_name, coc.order_id, roc.cancellation, coc.extras, coc.extras_2,
+		CASE
+			WHEN pn.pizza_name = 'Meatlovers' THEN 12
+			ELSE 10
+		END AS price,
+		CASE
+			WHEN coc.extras IS NOT NULL AND coc.extras_2 IS NULL THEN 1
+			WHEN coc.extras_2 IS NOT NULL THEN 2
+			ELSE 0
+		END AS extras_price
+	FROM pizza_runner.customer_orders_cleaned coc
+	INNER JOIN pizza_runner.runner_orders_cleaned roc ON coc.order_id = roc.order_id
+	INNER JOIN pizza_runner.pizza_names pn ON coc.pizza_id = pn.pizza_id
+	WHERE roc.cancellation IS NULL) AS price_table_with_extras
+
+--D.3 The Pizza Runner team now wants to add an additional ratings system that allows customers to rate their runner, how would you design an additional table for this new dataset -
+-- generate a schema for this new table and insert your own data for ratings for each successful customer order between 1 to 5.
+
+DROP TABLE IF EXISTS pizza_runner.rating;
+CREATE TABLE pizza_runner.rating (
+  "rating_id" INTEGER,
+  "order_id" INTEGER,
+  "rating" INTEGER constraint check_rating CHECK(rating between 1 and 5),
+  "comment" VARCHAR(50)
+);
+INSERT INTO pizza_runner.rating
+VALUES
+  	(1,1,2,'Took more time than estimated')
+	,(2,2,4,'')
+	,(3,3,4,'')
+	,(4,4,5,'Really good service')
+	,(5,5,2, '')
+	,(6,6, NULL,'') -- order not delivered
+	,(7,7,5,'')
+	,(8,8,4,'Great service')
+	,(9,9, NULL, '') -- order not delivered
+	,(10,10,1,'The pizza arrived upside down, really disappointed');
+
+-- D4. Using your newly generated table - can you join all of the information together to form a table which has the following information for successful deliveries?
+/*		- customer_id
+		- order_id
+		- runner_id
+		- rating
+		- order_time
+		- pickup_time
+		- Time between order and pickup
+		- Delivery distance
+		- Delivery duration
+		- Average speed
+		- Total number of pizzas*/
+
+
+
+DROP TABLE IF EXISTS general_info;
+SELECT
+	coc.customer_id,
+	coc.order_id,
+	roc.runner_id,
+	rtg.rating,
+	coc.order_time,
+	roc.pickup_time,
+	roc.pickup_time - coc.order_time AS time_betwen_order_pickup,
+	roc.duration AS delivery_duration,
+	roc.distance/roc.duration/60 AS avg_speed,
+	count(coc.pizza_id) AS total_number_pizzas
+	
+INTO general_info
+
+FROM pizza_runner.customer_orders_cleaned coc
+INNER JOIN pizza_runner.runner_orders_cleaned roc ON coc.order_id = roc.order_id
+INNER JOIN pizza_runner.rating rtg ON coc.order_id = rtg.order_id
+WHERE roc.cancellation IS NOT NULL
+GROUP BY coc.customer_id, coc.order_id, roc.runner_id, rtg.rating, coc.order_time, roc.pickup_time, delivery_duration, avg_speed 
+
+SELECT * FROM general_info
 
 
 
