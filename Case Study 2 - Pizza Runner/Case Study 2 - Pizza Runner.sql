@@ -695,8 +695,6 @@ VALUES
 		- Average speed
 		- Total number of pizzas*/
 
-
-
 DROP TABLE IF EXISTS general_info;
 SELECT
 	coc.customer_id,
@@ -705,9 +703,9 @@ SELECT
 	rtg.rating,
 	coc.order_time,
 	roc.pickup_time,
-	roc.pickup_time - coc.order_time AS time_betwen_order_pickup,
+	ROUND((extract(epoch from (pickup_time - order_time)))/60,2) AS time_betwen_order_and_pickup_min,
 	roc.duration AS delivery_duration,
-	roc.distance/roc.duration/60 AS avg_speed,
+	ROUND(roc.distance*60/roc.duration,2) AS average_speed_km_h,
 	count(coc.pizza_id) AS total_number_pizzas
 	
 INTO general_info
@@ -715,14 +713,33 @@ INTO general_info
 FROM pizza_runner.customer_orders_cleaned coc
 INNER JOIN pizza_runner.runner_orders_cleaned roc ON coc.order_id = roc.order_id
 INNER JOIN pizza_runner.rating rtg ON coc.order_id = rtg.order_id
-WHERE roc.cancellation IS NOT NULL
-GROUP BY coc.customer_id, coc.order_id, roc.runner_id, rtg.rating, coc.order_time, roc.pickup_time, delivery_duration, avg_speed 
+WHERE roc.cancellation IS NULL
+GROUP BY coc.customer_id, coc.order_id, roc.runner_id, rtg.rating, coc.order_time, roc.pickup_time, delivery_duration, average_speed_km_h 
 
 SELECT * FROM general_info
+ORDER BY order_id
 
+-- C5 .If a Meat Lovers pizza was $12 and Vegetarian $10 fixed prices with no cost for extras and each runner is paid $0.30 per kilometre traveled
+-- how much money does Pizza Runner have left over after these deliveries?
 
+SELECT SUM(price_table.price) - SUM(price_table.delivery_cost) AS total_income
+FROM(
+	SELECT 
+	pn.pizza_name,
+	coc.order_id,
+	roc.cancellation,
+	roc.distance,
+	roc.distance * 0.3 AS delivery_cost,
+		CASE
+			WHEN pn.pizza_name = 'Meatlovers' THEN 12
+			ELSE 10
+		END AS price
+	FROM pizza_runner.customer_orders_cleaned coc
+	INNER JOIN pizza_runner.runner_orders_cleaned roc ON coc.order_id = roc.order_id
+	INNER JOIN pizza_runner.pizza_names pn ON coc.pizza_id = pn.pizza_id
+	WHERE roc.cancellation IS NULL) AS price_table
 
-
+	
 ---------------------
 -- BONUS QUESTIONS --
 ---------------------
