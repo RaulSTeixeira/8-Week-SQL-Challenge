@@ -2884,6 +2884,6 @@ SELECT
 FROM #ypt_start_yearly sy
 INNER JOIN #ypt_start_trial st ON sy.customer_id = st.customer_id
 
---B.10 How many days on average does it take for a customer to upgrade to an annual plan from the day they join Foodie-Fi?
+--B.9 How many days on average does it take for a customer to upgrade to an annual plan from the day they join Foodie-Fi?
 
 
