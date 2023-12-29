@@ -1,2 +1,5 @@
 #Ignore folder with some configurations
 SQL Server/
+
+#Ignore specific file
+/cupao.PNG
