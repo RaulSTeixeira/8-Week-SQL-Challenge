@@ -2728,9 +2728,6 @@ FROM foodie_fi.subscriptions sub
 INNER JOIN foodie_fi.plans pl ON sub.plan_id = pl.plan_id
 WHERE sub.customer_id IN (1,2, 11, 13, 15, 18, 18, 19)
 
-
-
-
 -- Customer 1 changed to a basic monthly plan right before the trial expired
 -- Customer 2 changed to a pro anuual plan right before the trial expired
 -- Customer 15 went to pro monthly after the 7 days, and then cancelled after 5 days. He possibly forgot to cancel the free trial
@@ -2940,7 +2937,96 @@ DELETE FROM #basic_monthly WHERE #basic_monthly.basic_plan IS NULL
   FROM #pro_monthly pm
   INNER JOIN #basic_monthly bm ON pm.customer_id = bm.customer_id
   WHERE pm.rank_plan < bm.rank_plan
-  GROUP BY pm.customer_id
+  GROUP BY pm.customer_id;
 
 
 -- no customers have downgraded
+
+-- C. Challenge Payment Question
+
+/*
+	The Foodie-Fi team wants you to create a new payments table for the year 2020 that includes amounts paid by each customer in the subscriptions table with the following requirements:
+	1 - Monthly payments always occur on the same day of month as the original start_date of any monthly paid plan -- DATEADD()
+	2 - Upgrades from basic to monthly or pro plans are reduced by the current paid amount in that month and start immediately 
+	3 - Upgrades from pro monthly to pro annual are paid at the end of the current billing period and also starts at the end of the month period 
+	4 - once a customer churns they will no longer make payments 
+
+*/
+
+-- 1: Pull all needed information from the subscriptions table plus a lead function to find the next_date for each row.
+-- The next_date represents the end of the current plan, or the lastest plan for the customer (iff null)
+
+WITH lead_cte AS(
+  SELECT 
+      s.customer_id,
+      p.plan_id,
+      p.plan_name,
+      s.start_date,
+      p.price,
+      LEAD(s.start_date, 1) OVER (PARTITION BY s.customer_id ORDER BY s.customer_id) as next_date
+  FROM foodie_fi.subscriptions s
+    INNER JOIN foodie_fi.plans p on s.plan_id = p.plan_id
+  WHERE p.plan_id <> 0),
+
+-- 2: Update next_date according to the business definitions
+
+reviewed_cte AS(
+  SELECT
+    customer_id,
+    plan_id,
+    plan_name,
+    start_date,
+    CASE
+      WHEN next_date IS NULL AND plan_id IN (3,4) THEN NULL
+      WHEN next_date IS NULL OR LEFT(next_date,4) = 2021 THEN '2020-12-31'
+      ELSE next_date
+    END AS next_date,
+    price
+  FROM lead_cte),
+
+-- 3: Apply recursive CTE
+
+ recursive_cte AS(
+  SELECT *
+  FROM reviewed_cte
+  
+  UNION ALL
+
+  SELECT
+    customer_id,
+    plan_id,
+    plan_name,
+    CASE
+      WHEN next_date IS NOT NULL THEN DATEADD(month,1,start_date)
+      ELSE NULL
+    END AS start_date,
+    next_date,
+    price
+  FROM recursive_cte
+  WHERE start_date < DATEADD(month,-1,next_date))
+
+SELECT customer_id
+,plan_id
+,plan_name
+,start_date as payment_date
+,CASE 
+	WHEN plan_id = 3 AND LAG(plan_id,1) OVER(PARTITION BY customer_id ORDER BY start_date) = 1 
+	THEN price - LAG(price,1) OVER (PARTITION BY customer_id ORDER BY start_date)
+	ELSE price
+END AS amount
+,RANK() OVER(PARTITION BY customer_id ORDER BY start_date) as payment_order
+INTO foodie_fi.payments
+
+FROM recursive_cte
+WHERE 1=1 
+	AND LEFT(start_date,4) = 2020
+	AND plan_id <> 4
+ORDER BY customer_id,start_date;
+
+SELECT * FROM foodie_fi.payments
+
+
+
+
+
+
