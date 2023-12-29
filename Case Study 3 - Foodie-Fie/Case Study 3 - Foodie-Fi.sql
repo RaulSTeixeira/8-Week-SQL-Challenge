@@ -2884,6 +2884,63 @@ SELECT
 FROM #ypt_start_yearly sy
 INNER JOIN #ypt_start_trial st ON sy.customer_id = st.customer_id
 
---B.9 How many days on average does it take for a customer to upgrade to an annual plan from the day they join Foodie-Fi?
+--B.10 Can you further breakdown this average value into 30 day periods (i.e. 0-30 days, 31-60 days etc)
+
+WITH interval_time_cte AS(
+  SELECT
+    sy.customer_id,
+    CASE
+      WHEN (DATEDIFF(day, st.plan_trial_start_date, sy.plan_yearly_start_date)) BETWEEN 0 AND 30 THEN '0-30 days'
+      WHEN (DATEDIFF(day, st.plan_trial_start_date, sy.plan_yearly_start_date)) BETWEEN 31 AND 60 THEN '31-60 days'
+      WHEN (DATEDIFF(day, st.plan_trial_start_date, sy.plan_yearly_start_date)) BETWEEN 61 AND 90 THEN '61-90 days'
+      WHEN (DATEDIFF(day, st.plan_trial_start_date, sy.plan_yearly_start_date)) BETWEEN 61 AND 90 THEN '91-90 days'
+      WHEN (DATEDIFF(day, st.plan_trial_start_date, sy.plan_yearly_start_date)) BETWEEN 61 AND 90 THEN '91-120 days'
+      ELSE 'more than 120 days'
+    END AS interval_time
+  FROM #ypt_start_yearly sy
+  INNER JOIN #ypt_start_trial st ON sy.customer_id = st.customer_id)
+
+SELECT
+  interval_time,
+  COUNT(customer_id) as number_clients
+FROM interval_time_cte
+GROUP BY interval_time
+
+--B.11 How many customers downgraded from a pro monthly to a basic monthly plan in 2020?
+
+DROP TABLE IF EXISTS #pro_monthly;
+  SELECT
+    rp.customer_id,
+    rp.rank_plan,
+    CASE
+      WHEN rp.plan_id = 2 THEN 1
+      ELSE NULL
+      END AS pro_plan
+  INTO #pro_monthly
+  FROM #rank_plan rp
+
+  DROP TABLE IF EXISTS #basic_monthly;
+  SELECT
+    rp.customer_id,
+    rp.rank_plan,
+    CASE
+      WHEN rp.plan_id = 1 THEN 1
+      ELSE NULL
+      END AS basic_plan
+  INTO #basic_monthly
+  FROM #rank_plan rp
+
+DELETE FROM #pro_monthly WHERE #pro_monthly.pro_plan IS NULL
+DELETE FROM #basic_monthly WHERE #basic_monthly.basic_plan IS NULL
 
 
+
+  SELECT COUNT(pm.customer_id)
+
+  FROM #pro_monthly pm
+  INNER JOIN #basic_monthly bm ON pm.customer_id = bm.customer_id
+  WHERE pm.rank_plan < bm.rank_plan
+  GROUP BY pm.customer_id
+
+
+-- no customers have downgraded
