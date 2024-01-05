@@ -3182,4 +3182,5 @@ FROM(
 
 		Validations:
 		- A/B tests, cohort analysis - number of active customers by date (retention day 7, retention day 30 etc.).
-*/	
+*/
+	
