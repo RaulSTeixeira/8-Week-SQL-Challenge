@@ -2954,7 +2954,10 @@ DELETE FROM #basic_monthly WHERE #basic_monthly.basic_plan IS NULL
 */
 
 -- 1: Pull all needed information from the subscriptions table plus a lead function to find the next_date for each row.
--- The next_date represents the end of the current plan, or the lastest plan for the customer (iff null)
+-- The next_date represents the end of the current plan, or the lastest plan for the customer (if null)
+-- Trial plans dont have payment, so they were not considered
+
+DROP TABLE IF EXISTS foodie_fi.payments;
 
 WITH lead_cte AS(
   SELECT 
@@ -2977,14 +2980,14 @@ reviewed_cte AS(
     plan_name,
     start_date,
     CASE
-      WHEN next_date IS NULL AND plan_id IN (3,4) THEN NULL
-      WHEN next_date IS NULL OR LEFT(next_date,4) = 2021 THEN '2020-12-31'
+      WHEN next_date IS NULL AND plan_id IN (3,4) THEN NULL -- there are no recurring payments for annual or churn plans 
+      WHEN next_date IS NULL OR LEFT(next_date,4) = 2021 THEN '2020-12-31' -- payment date is an ongoing series until the end of 2020
       ELSE next_date
     END AS next_date,
     price
   FROM lead_cte),
 
--- 3: Apply recursive CTE
+-- 3: Create a recursive CTE to generate the payments series
 
  recursive_cte AS(
   SELECT *
@@ -3005,28 +3008,178 @@ reviewed_cte AS(
   FROM recursive_cte
   WHERE start_date < DATEADD(month,-1,next_date))
 
-SELECT customer_id
-,plan_id
-,plan_name
-,start_date as payment_date
-,CASE 
-	WHEN plan_id = 3 AND LAG(plan_id,1) OVER(PARTITION BY customer_id ORDER BY start_date) = 1 
-	THEN price - LAG(price,1) OVER (PARTITION BY customer_id ORDER BY start_date)
-	ELSE price
-END AS amount
-,RANK() OVER(PARTITION BY customer_id ORDER BY start_date) as payment_order
-INTO foodie_fi.payments
+-- 4: Final SELECT statement. We need to consider if a customer upgradates from a basic monthly to a pro monthly, we need to deduct the different between the current plan and the new plan.
 
+SELECT 
+  customer_id,
+  plan_id,
+  plan_name,
+  start_date as payment_date,
+  CASE 
+	  WHEN plan_id = 3 AND LAG(plan_id,1) OVER(PARTITION BY customer_id ORDER BY start_date) = 1 
+	  THEN price - LAG(price,1) OVER (PARTITION BY customer_id ORDER BY start_date)
+	  ELSE price
+  END AS amount,
+  RANK() OVER(PARTITION BY customer_id ORDER BY start_date) as payment_order
+INTO foodie_fi.payments
 FROM recursive_cte
-WHERE 1=1 
-	AND LEFT(start_date,4) = 2020
-	AND plan_id <> 4
+WHERE 
+  LEFT(start_date,4) = 2020 AND plan_id <> 4
 ORDER BY customer_id,start_date;
 
-SELECT * FROM foodie_fi.payments
+-- Check the same customer ids as there are on the exercise example table
+SELECT *
+FROM foodie_fi.payments p 
+WHERE p.customer_id in (1,2,13,15,16,18,19)
 
+-- D. Outside The Box Questions
 
+-- D.1 How would you calculate the rate of growth for Foodie-Fi?
+-- NOTE: This solution is not fully correct because it only captures new customers per month, and not existing ones
+SELECT
+  year_month,
+  number_customers as current_month_customers,
+  LAG(number_customers,1) OVER (ORDER BY year_month) as previous_month_customers,
+  ROUND(((CAST(number_customers as float) - LAG(number_customers,1) OVER (ORDER BY year_month))/LAG(number_customers,1) OVER (ORDER BY year_month))*100,2) as 'growth_%'
 
+FROM(
+      SELECT 
+        FORMAT(start_date,'yyyy-MM') as year_month, -- OR Concat(YEAR(start_date),'-', MONTH(start_date)) as year_month,
+        COUNT(customer_id) as number_customers
+      FROM foodie_fi.subscriptions
+      WHERE plan_id NOT IN (0,4)
+      GROUP BY FORMAT(start_date,'yyyy-MM')
+) as a
 
+--Another attempt using recursive CTE to count all customers that have a subscription per month
 
+DROP TABLE IF EXISTS foodie_fi.subscribed_customers;
 
+WITH lead_cte2 AS(
+  SELECT 
+      s.customer_id,
+      p.plan_id,
+      p.plan_name,
+      s.start_date,
+      p.price,
+      LEAD(s.start_date, 1) OVER (PARTITION BY s.customer_id ORDER BY s.customer_id) as next_date
+  FROM foodie_fi.subscriptions s
+    INNER JOIN foodie_fi.plans p on s.plan_id = p.plan_id
+  WHERE p.plan_id <> 0),
+
+reviewed_cte2 AS(
+  SELECT
+    customer_id,
+    plan_id,
+    plan_name,
+    start_date,
+    CASE
+      WHEN next_date IS NULL AND plan_id IN (4) THEN NULL -- there are no recurring payments for churn plans 
+      WHEN next_date IS NULL OR LEFT(next_date,4) = 2021 THEN '2021-04-30' -- payment date is an ongoing series until the last record we have
+      ELSE next_date
+    END AS next_date,
+    price
+  FROM lead_cte2),
+
+ recursive_cte2 AS(
+  SELECT *
+  FROM reviewed_cte2
+  
+  UNION ALL
+
+  SELECT
+    customer_id,
+    plan_id,
+    plan_name,
+    CASE
+      WHEN next_date IS NOT NULL THEN DATEADD(month,1,start_date)
+      ELSE NULL
+    END AS start_date,
+    next_date,
+    price
+  FROM recursive_cte2
+  WHERE start_date < DATEADD(month,-1,next_date))
+
+SELECT 
+  customer_id,
+  plan_id,
+  plan_name,
+  start_date as payment_date,
+  CASE 
+	  WHEN plan_id = 3 AND LAG(plan_id,1) OVER(PARTITION BY customer_id ORDER BY start_date) = 1 
+	  THEN price - LAG(price,1) OVER (PARTITION BY customer_id ORDER BY start_date)
+	  ELSE price
+  END AS amount,
+  RANK() OVER(PARTITION BY customer_id ORDER BY start_date) as payment_order
+INTO foodie_fi.subscribed_customers
+FROM recursive_cte2
+WHERE 
+  plan_id <> 4
+ORDER BY customer_id,start_date;
+
+-- Final Select using foodie_fi.subscribed_customers
+-- Note: In this solution customers that change from monthly to yearly subscripiton are counted twice in a month
+SELECT
+  year_month,
+  number_customers as current_month_customers,
+  LAG(number_customers,1) OVER (ORDER BY year_month) as previous_month_customers,
+  ROUND(((CAST(number_customers as float) - LAG(number_customers,1) OVER (ORDER BY year_month))/LAG(number_customers,1) OVER (ORDER BY year_month))*100,2) as 'growth_%'
+
+FROM(
+      SELECT 
+        FORMAT(payment_date,'yyyy-MM') as year_month, -- OR Concat(YEAR(start_date),'-', MONTH(start_date)) as year_month,
+        COUNT(customer_id) as number_customers
+      FROM foodie_fi.subscribed_customers
+      WHERE plan_id NOT IN (0,4)
+      GROUP BY FORMAT(payment_date,'yyyy-MM')
+) as a
+
+-- D.2 What key metrics would you recommend Foodie-Fi management to track over time to assess performance of their overall business? [NO SQL RELATED]
+/* 
+		- Total number of customers
+		- Total number of active customers (total - churn)
+		- Total number of paying customers (active customers - trial)
+		- Total active customers by plans
+		- Ratio new to churn customers (to understand if the company is growing or losing their customers)
+		- Total revenue
+		- Average revenue per user
+*/
+
+-- D.3 What are some key customer journeys or experiences that you would analyse further to improve customer retention? [NO SQL RELATED]
+/*	
+		- Understand what happens on the day 7 when the trail ends
+		- Quantify how long the customers use the app, how many videos they watching during a session, etc
+		- Track customer behaviour according to watching preferences
+*/
+
+-- D.4 If the Foodie-Fi team were to create an exit survey shown to customers who wish to cancel their subscription, what questions would you include in the survey? [NO SQL RELATED]
+/*
+		1 - Whats the single biggest reason for you cancelling? - Please select one reason
+			- I dont understand how to use Foodie-Fi
+			- Foodie-Fi is too expensive
+			- I found another product that I like better
+			- I don't have time to use the service
+			
+		2.Did we meet your expectations?
+			- Yes
+			- No
+
+		3. What would it take for you to reconsider subscribing to Foodie-Fi? - Optional
+
+		4. How can we improve? - Optional, could you please let us know how can we make Foodie-Fi better?
+*/
+
+-- D.5 What business levers could the Foodie-Fi team use to reduce the customer churn rate? How would you validate the effectiveness of your ideas? [NO SQL RELATED]
+/*
+		Define and clarify the churn rate:
+		- Churn rate after trial is different from the paying customer churn rate. When a user sign-ups, the Foodie-Fi goal should be to convert him into a customer as quick as possible. 
+		
+		Recommendations: 
+		- Show features of the paid plans and offer a special discount for early subscription for pro plans.
+		- After the trial ends, it is possible to show limited amount of videos per day for free, and offer another discount.
+		- Create a Loyalty program: paying customers can be extra rewarded for their loyalty with bonus points for their future purchases for example. 
+		- Add gamification elements to the loyalty program such as goal-setting, countdowns, or virtual rewards.
+
+		Validations:
+		- A/B tests, cohort analysis - number of active customers by date (retention day 7, retention day 30 etc.).
+*/	
