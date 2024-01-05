@@ -719,7 +719,7 @@ GROUP BY coc.customer_id, coc.order_id, roc.runner_id, rtg.rating, coc.order_tim
 SELECT * FROM general_info
 ORDER BY order_id
 
--- C5 .If a Meat Lovers pizza was $12 and Vegetarian $10 fixed prices with no cost for extras and each runner is paid $0.30 per kilometre traveled
+-- D5 .If a Meat Lovers pizza was $12 and Vegetarian $10 fixed prices with no cost for extras and each runner is paid $0.30 per kilometre traveled
 -- how much money does Pizza Runner have left over after these deliveries?
 
 SELECT SUM(price_table.price) - SUM(price_table.delivery_cost) AS total_income
@@ -744,4 +744,15 @@ FROM(
 -- BONUS QUESTIONS --
 ---------------------
 
+-- If Danny wants to expand his range of pizzas - how would this impact the existing data design?
+-- Write an INSERT statement to demonstrate what would happen if a new Supreme pizza with all the toppings was added to the Pizza Runner menu?
 
+INSERT INTO pizza_runner.pizza_names
+VALUES
+(3,'Supreme')
+
+INSERT INTO pizza_runner.pizza_recipes
+VALUES
+(3,'1,2,3,4,5,6,7,8,9,10,11,12')
+
+-- The database design can acommodate this pizza
