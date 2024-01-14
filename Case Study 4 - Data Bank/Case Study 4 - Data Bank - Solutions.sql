@@ -180,6 +180,9 @@ FROM data_bank.customer_transactions ct
 GROUP BY ct.customer_id, FORMAT(ct.txn_date, 'yyyy-MM')
 ORDER BY customer_id;
 
+SELECT * FROM #monthly_balance
+ORDER BY customer_id, year_month
+
 SELECT
     customer_id,
     year_month,
@@ -189,23 +192,7 @@ FROM #monthly_balance;
 SELECT * FROM #monthly_balance
 ORDER BY customer_id
 
-
 -- B.5 What is the percentage of customers who increase their closing balance by more than 5%?
-
--- SELECT
---     *,
---     CASE
---         WHEN RANK() OVER (PARTITION BY customer_id ORDER BY year_month) = 1 THEN NULL
---         ELSE ((CAST(c.balance as int)) - CAST(LAG(c.balance,1) OVER (PARTITION BY customer_id ORDER BY year_month) as int)) --/ CAST(LAG(c.balance,1) OVER (PARTITION BY customer_id ORDER BY year_month) as float)
---     END AS test,
---     CAST(LAG(c.balance,1) OVER (PARTITION BY customer_id ORDER BY year_month) as int) as test2
--- FROM(
---     SELECT
---         customer_id,
---         year_month,
---         CAST(SUM(amount) OVER(PARTITION BY customer_id ORDER BY year_month ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) as int) as balance
---     FROM #monthly_balance
--- )c;
 
 DECLARE @total_customers int = (SELECT COUNT(DISTINCT customer_id)
 								FROM data_bank.customer_transactions);
@@ -266,3 +253,122 @@ final_cte as(
 SELECT ROUND(COUNT(customer_id)/CAST(@total_customers as float) * 100,2) as nr_customers_growth_more_than_5
 FROM final_cte
 WHERE rounded_growth > 5.00
+
+--C. Data Allocation Challenge
+
+-- 1. Calculate running customer balance column that includes the impact of each transaction
+
+DROP TABLE IF EXISTS #running_customer_balance;
+
+WITH amount_cte AS(
+    SELECT
+        ct.customer_id,
+        ct.txn_date,
+        ct.txn_type,
+        ct.txn_amount,
+        CASE
+            WHEN ct.txn_type = 'deposit' THEN ct.txn_amount
+            ELSE -ct.txn_amount
+        END AS amount
+    FROM data_bank.customer_transactions ct
+)
+
+SELECT
+    customer_id,
+    txn_date,
+    txn_type,
+    amount,
+    sum(amount) OVER (PARTITION BY customer_id ORDER BY txn_date) AS runing_balance
+    INTO #running_customer_balance
+    FROM amount_cte
+ORDER BY customer_id
+
+SELECT * FROM #running_customer_balance
+ORDER BY customer_id;
+
+-- 2. Calculate customer balance at the end of each month
+-- we could have used cte's instead of sub-quering
+
+DROP TABLE IF EXISTS #monthly_customer_balance;
+SELECT 
+    customer_id,
+    year_month,
+    SUM(monthly_amount) OVER (PARTITION BY customer_id ORDER BY year_month ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS monthly_balance
+INTO #monthly_customer_balance
+FROM(
+    SELECT 
+        customer_id,
+        FORMAT(txn_date, 'yyyy-MM') as year_month,
+        sum (amount) as monthly_amount
+    FROM #running_customer_balance rcb
+    GROUP BY customer_id, FORMAT(txn_date, 'yyyy-MM')
+)a;
+
+SELECT * FROM #monthly_customer_balance
+ORDER BY customer_id, year_month;
+
+-- 3. Minimum, average and maximum values of the running balance for each customer
+
+DROP TABLE IF EXISTS #running_customer_balance_statistics;
+SELECT
+    customer_id,
+    FORMAT(txn_date, 'yyyy-MM') as year_month,
+    MIN(runing_balance) as min,
+    AVG(runing_balance) as avg,
+    MAX(runing_balance) as max
+INTO #running_customer_balance_statistics
+FROM #running_customer_balance
+GROUP BY customer_id,FORMAT(txn_date, 'yyyy-MM');
+
+SELECT * FROM #running_customer_balance_statistics
+ORDER BY customer_id, year_month
+
+/*
+Help the Data Bank team estimate how much data will need to be provisioned for each option:
+	- Option 1: data is allocated based off the amount of money at the end of the previous month
+	- Option 2: data is allocated on the average amount of money kept in the account in the previous 30 days
+	- Option 3: data is updated real-time
+
+Using all of the data available - how much data would have been required for each option on a monthly basis?
+*/
+
+-- Option 1: data is allocated based off the amount of money at the end of the previous month
+
+SELECT
+    year_month,
+    CASE
+        WHEN LAG(total_monthly_data,1) OVER (ORDER BY year_month) IS NULL THEN total_monthly_data
+        ELSE LAG(total_monthly_data,1) OVER (ORDER BY year_month)
+    END AS previous_month_data
+FROM(
+    SELECT
+        year_month,
+        sum(IIF(monthly_balance > 0,monthly_balance,0)) as total_monthly_data -- Return "YES" if the condition is TRUE, or "NO" if the condition is FALSE: SELECT IIF(500<1000, 'YES', 'NO');
+    FROM #monthly_customer_balance
+    GROUP BY year_month
+)a;
+
+-- Option 2: data is allocated on the average amount of money kept in the account in the previous 30 days
+
+SELECT
+    year_month,
+    CASE
+        WHEN LAG(avg_monthly_data,1) OVER (ORDER BY year_month) IS NULL THEN avg_monthly_data
+        ELSE LAG(avg_monthly_data,1) OVER (ORDER BY year_month)
+    END AS previous_month_data
+FROM(
+    SELECT
+        year_month,
+        sum(IIF(avg > 0,avg,0)) as avg_monthly_data -- Return "YES" if the condition is TRUE, or "NO" if the condition is FALSE: SELECT IIF(500<1000, 'YES', 'NO');
+    FROM #running_customer_balance_statistics
+    GROUP BY year_month
+)a;
+
+-- Option 3: data is updated real-time
+
+SELECT
+        FORMAT(txn_date, 'yyyy-MM') as year_month,
+        sum(IIF(runing_balance > 0,runing_balance,0)) as runing_monthly_data -- Return "YES" if the condition is TRUE, or "NO" if the condition is FALSE: SELECT IIF(500<1000, 'YES', 'NO');
+    FROM #running_customer_balance
+    GROUP BY FORMAT(txn_date, 'yyyy-MM');
+
