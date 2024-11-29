@@ -16,6 +16,7 @@ Please find the solution links for the case studies below. Click on the links to
 - [Case Study #3: Foodie-Fi](https://github.com/RaulSTeixeira/8-Week-SQL-Challenge/tree/master/Case%20Study%203%20-%20Foodie-Fie)
 - [Case Study #4: Data Bank](https://github.com/RaulSTeixeira/8-Week-SQL-Challenge/tree/master/Case%20Study%204%20-%20Data%20Bank)
 - [Case Study #5: Data Mart] (In Progress)
+- [Case Study #7: Balanced Tree Clothing Co.](https://github.com/RaulSTeixeira/8-Week-SQL-Challenge/tree/master/Case%20Study%207%20-%20Balanced%20Tree)
 
 
 ## 📋 Challenge Case Studies
