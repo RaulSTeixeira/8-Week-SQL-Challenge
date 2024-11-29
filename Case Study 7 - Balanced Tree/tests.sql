@@ -30,5 +30,9 @@ Select txn_id, Distinct(prod_id)
 From balanced_tree.sales
 Group by txn_id
 
+Select txn_id, Distinct(prod_id)
+From balanced_tree.sales
+Group by txn_id
+
 
 
